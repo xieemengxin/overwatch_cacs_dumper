@@ -202,6 +202,153 @@ def main():
 
         f.write("} // namespace gen\n} // namespace ow_v2\n")
 
+    # ====== 生成 component_data_gen.hpp ======
+    comp_file = os.path.join(dump_dir, "entity_components.json")
+    if os.path.exists(comp_file):
+        comp_data = json.load(open(comp_file, encoding="utf-8"))
+
+        # 收集每个英雄的关键组件数值
+        hero_comps = {}
+        for h in comp_data:
+            hid = h["hero_id"]
+            hname = clean(h.get("hero_name",""))
+            comps = {}
+            for c in h.get("components", []):
+                ctype = c["component_type"]
+                fields = {}
+                def collect(flist, prefix=""):
+                    for f in flist:
+                        fname = prefix + f.get("field","")
+                        if "children" in f:
+                            collect(f["children"], fname + ".")
+                        elif "items" in f:
+                            for item in f["items"]:
+                                collect(item.get("fields",[]), f"{fname}[{item.get('index',0)}].")
+                        elif f.get("type") in ("float","int","byte","uint","double","bool","enum"):
+                            fields[fname] = f
+                collect(c.get("fields",[]))
+                if fields:
+                    comps[ctype] = fields
+            if comps:
+                hero_comps[hid] = {"name": hname, "comps": comps}
+
+        with open(os.path.join(out_dir, "component_data_gen.hpp"), "w", encoding="utf-8") as f:
+            f.write("// 自动生成 - 由 generate_sdk.py 从 CASC entity definition 产生\n")
+            f.write("// 包含：每个英雄的组件初始值（移动参数、生命值、FOV 等）\n")
+            f.write("// 这些是 CASC 定义中的默认值，可用于在运行时内存中匹配定位字段偏移\n")
+            f.write("#pragma once\n\n#include <cstdint>\n\nnamespace ow_v2 {\nnamespace gen {\n\n")
+
+            # 组件类型哈希 → 可读名 映射
+            COMP_NAMES = {
+                "STUCharacterMoverComponent": "CharacterMover",
+                "STUHealthComponent": "Health",
+                "STUModelComponent": "Model",
+                "STUFirstPersonComponent": "FirstPerson",
+                "STUWeaponComponent": "Weapon",
+                "STUFallingDamageComponent": "FallingDamage",
+                "STUContactSetComponent": "ContactSet",
+                "STUTargetTagComponent": "TargetTag",
+                "STUVoiceSetComponent": "VoiceSet",
+                "STUStatescriptComponent": "Statescript",
+            }
+
+            # 字段语义注释
+            FIELD_HINTS = {
+                "m_1972C687": "可能是基础移速(base_speed)",
+                "m_7A70E3E3": "可能是加速度相关",
+                "m_4A576BC2": "可能是减速度相关",
+                "m_03E04168": "可能是跳跃高度",
+                "m_D4AE9D05": "可能是空中控制系数",
+                "m_6B7FDB90": "可能是重力",
+                "m_5C6B4602": "可能是最大速度或步频",
+                "m_4B75D84E": "FOV(视场角)",
+                "m_E29993A5": "第一人称摄像机高度",
+                "m_816B830F": "第一人称摄像机偏移Y",
+                "m_CF5055F1": "第一人称摄像机缩放",
+                "m_5AF3C1F6": "重生时间(秒)",
+                "m_E64867CE": "HP相关参数",
+                "m_43A3CE29": "坠落伤害阈值",
+                "m_0DBF43D5": "模型缩放或碰撞高度",
+            }
+
+            # 生成每个英雄的组件数据结构
+            f.write("/// 组件初始值——用于在运行时内存中通过值匹配定位字段偏移\n")
+            f.write("/// 使用方法：读取组件基址后的内存，搜索这些已知 float 值的位置即可确定偏移\n")
+            f.write("struct ComponentFieldValue {\n")
+            f.write("    const char* field_hash;   // STU 字段哈希名（如 m_1972C687）\n")
+            f.write("    const char* hint;         // 推测含义\n")
+            f.write("    const char* type;         // float/int/byte\n")
+            f.write("    float       float_val;    // float 类型的值\n")
+            f.write("    int         int_val;      // int 类型的值\n")
+            f.write("};\n\n")
+
+            # 逐英雄、逐组件输出
+            for hid, info in sorted(hero_comps.items(), key=lambda x: int(x[0], 16)):
+                hid_int = int(hid, 16)
+                hname = info["name"]
+
+                for ctype, fields in info["comps"].items():
+                    cname = COMP_NAMES.get(ctype, ctype.replace("STU",""))
+                    if ctype in ("STUStatescriptComponent",): continue  # statescript 数据在别处
+
+                    # 只输出有意义的字段
+                    useful = [(fname, fdata) for fname, fdata in fields.items()
+                              if fdata["type"] in ("float","int") and fname.startswith("m_")]
+                    if not useful: continue
+
+                    f.write(f"/// {hname} (0x{hid_int:X}) — {cname} 组件\n")
+                    f.write(f"inline constexpr ComponentFieldValue kComp_{hid_int:X}_{cname}[] = {{\n")
+                    for fname, fdata in useful:
+                        hint = FIELD_HINTS.get(fname.split(".")[-1], "")
+                        val = fdata.get("value", 0)
+                        ftype = fdata["type"]
+                        fval = f"{val}" if ftype == "float" else "0"
+                        ival = f"{val}" if ftype == "int" else "0"
+                        comment = f" // {hint}" if hint else ""
+                        f.write(f'    {{"{fname}", "{hint}", "{ftype}", {fval}f, {ival}}},{comment}\n')
+                    f.write("};\n\n")
+
+            # 通用组件字段值对照表（跨英雄对比同一字段的值分布）
+            f.write("/// 跨英雄组件字段对照表——同一字段在不同英雄上的值\n")
+            f.write("/// 用于识别哪些字段是移速(各英雄不同)、哪些是固定系统值\n")
+            field_dist = defaultdict(list)
+            for hid, info in hero_comps.items():
+                hid_int = int(hid, 16)
+                for ctype, fields in info["comps"].items():
+                    if ctype == "STUStatescriptComponent": continue
+                    cname = COMP_NAMES.get(ctype, ctype)
+                    for fname, fdata in fields.items():
+                        if fdata["type"] == "float" and fname.startswith("m_"):
+                            key = f"{cname}.{fname}"
+                            field_dist[key].append((hid_int, info["name"], fdata["value"]))
+
+            f.write("// 字段值分布（只列出有变化的字段，说明它是英雄特有参数）\n")
+            f.write("// 格式: 字段名 → 最小值 ~ 最大值 [样本数]\n")
+            f.write("/*\n")
+            for key, entries in sorted(field_dist.items()):
+                vals = [e[2] for e in entries]
+                if len(set(f"{v:.4f}" for v in vals)) <= 1: continue  # 所有英雄相同，跳过
+                vmin, vmax = min(vals), max(vals)
+                hint = FIELD_HINTS.get(key.split(".")[-1], "")
+                f.write(f"  {key:50s} {vmin:8.3f} ~ {vmax:8.3f}  [{len(entries):2d}个英雄]")
+                if hint: f.write(f"  // {hint}")
+                f.write("\n")
+                # 列出几个典型值
+                seen = {}
+                for hid2, hname2, val2 in sorted(entries, key=lambda x: x[2]):
+                    vs = f"{val2:.3f}"
+                    if vs not in seen:
+                        seen[vs] = hname2
+                        if len(seen) <= 5:
+                            f.write(f"    {vs:>10s} = {hname2}\n")
+                if len(seen) > 5:
+                    f.write(f"    ... 共 {len(seen)} 种不同值\n")
+            f.write("*/\n\n")
+
+            f.write("} // namespace gen\n} // namespace ow_v2\n")
+
+        print(f"  {out_dir}/component_data_gen.hpp — {len(hero_comps)} 个英雄的组件初始值")
+
     print(f"生成完成:")
     print(f"  {out_dir}/hero_data_gen.hpp — {len(hero_map)} 个英雄 + 技能映射")
     print(f"  {out_dir}/var_data_gen.hpp  — {len(var_ctx)} 个变量 + 语义上下文, {len(universal)} 个全局变量")
