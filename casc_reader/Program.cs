@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using TACTLib.Client;
 using TACTLib.Client.HandlerArgs;
@@ -32,11 +33,17 @@ if (client.ProductHandler is not ProductHandler_Tank tank) {
 }
 Console.Error.WriteLine($"Assets loaded: {tank.m_assets.Count}");
 
+// JSON 输出配置：CJK 直接输出 UTF-8，不转义
+var jsonOpt = new JsonSerializerOptions {
+    WriteIndented = true,
+    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+};
+
 string? ReadString(ulong guid) {
     if (guid == 0) return null;
     try {
         using var s = tank.OpenFile(guid);
-        return s == null ? null : ((string?)new teString(s))?.TrimEnd();
+        return s == null ? null : ((string?)new teString(s))?.TrimEnd('\0', ' ', '\n', '\r');
     } catch { return null; }
 }
 
@@ -129,7 +136,7 @@ foreach (var kvp in tank.m_assets) {
     });
 }
 
-var heroJson = JsonSerializer.Serialize(heroList, new JsonSerializerOptions { WriteIndented = true });
+var heroJson = JsonSerializer.Serialize(heroList, jsonOpt);
 File.WriteAllText(Path.Combine(outDir, "heroes.json"), heroJson);
 Console.Error.WriteLine($"Wrote {heroList.Count} heroes to heroes.json");
 
@@ -156,7 +163,7 @@ foreach (var kvp in tank.m_assets) {
 }
 
 File.WriteAllText(Path.Combine(outDir, "loadouts.json"),
-    JsonSerializer.Serialize(loadoutList, new JsonSerializerOptions { WriteIndented = true }));
+    JsonSerializer.Serialize(loadoutList, jsonOpt));
 Console.Error.WriteLine($"Wrote {loadoutList.Count} loadouts to loadouts.json");
 
 // ============ 3. Statescript via entity definition → StatescriptComponent → graph GUIDs ============
@@ -374,90 +381,7 @@ foreach (var kvp in tank.m_assets) {
 }
 
 File.WriteAllText(Path.Combine(outDir, "statescript_data.json"),
-    JsonSerializer.Serialize(ssDataList, new JsonSerializerOptions { WriteIndented = true }));
+    JsonSerializer.Serialize(ssDataList, jsonOpt));
 Console.Error.WriteLine($"Wrote {ssDataList.Count} hero statescript data to statescript_data.json");
 
-// ============ 4. Resolve all identifier GUIDs to names ============
-Console.Error.WriteLine("Resolving identifier names...");
-
-// Collect all unique identifier GUIDs from statescript data
-var idSet = new HashSet<ulong>();
-foreach (var h in ssDataList) {
-    // ssDataList items are anonymous types, need to cast via JSON round-trip
-}
-
-// Simpler: re-scan the JSON to collect identifier indices, then resolve
-var ssJson = JsonSerializer.Deserialize<JsonElement>(
-    File.ReadAllText(Path.Combine(outDir, "statescript_data.json")));
-
-foreach (var hero in ssJson.EnumerateArray()) {
-    foreach (var graph in hero.GetProperty("graphs").EnumerateArray()) {
-        foreach (var sv in graph.GetProperty("sync_vars").EnumerateArray()) {
-            if (sv.TryGetProperty("identifier_guid", out var g) && g.ValueKind == JsonValueKind.String) {
-                var guidStr = g.GetString()!;
-                if (ulong.TryParse(guidStr.Replace("0x",""), System.Globalization.NumberStyles.HexNumber, null, out var guid))
-                    idSet.Add(guid);
-            }
-        }
-        foreach (var prop in new[]{"public_schema","overrides"}) {
-            if (graph.TryGetProperty(prop, out var arr)) {
-                foreach (var se in arr.EnumerateArray()) {
-                    if (se.TryGetProperty("identifier_guid", out var g) && g.ValueKind == JsonValueKind.String) {
-                        var guidStr = g.GetString()!;
-                        if (ulong.TryParse(guidStr.Replace("0x",""), System.Globalization.NumberStyles.HexNumber, null, out var guid))
-                            idSet.Add(guid);
-                    }
-                }
-            }
-        }
-    }
-}
-Console.Error.WriteLine($"Unique identifier GUIDs to resolve: {idSet.Count}");
-
-// Try multiple resolution strategies:
-// 1. Read as teString (type 0x7C string format: [1byte][1byte][UTF8])
-// 2. Read raw bytes and look for ASCII
-var idNames = new Dictionary<string, object>();
-int resolved = 0, failed = 0;
-foreach (var guid in idSet) {
-    var idx = teResourceGUID.Index(guid);
-    var idxStr = $"0x{idx:X}";
-
-    // Strategy 1: try to read as-is from CASC
-    try {
-        using var s = tank.OpenFile(guid);
-        if (s != null) {
-            var bytes = new byte[s.Length];
-            s.Read(bytes, 0, bytes.Length);
-
-            // Try teString format: skip first 2 bytes, rest is UTF-8
-            string? name = null;
-            if (bytes.Length > 2) {
-                name = Encoding.UTF8.GetString(bytes, 2, bytes.Length - 2).TrimEnd('\0').Trim();
-            }
-            if (string.IsNullOrEmpty(name) && bytes.Length > 0) {
-                name = Encoding.UTF8.GetString(bytes).TrimEnd('\0').Trim();
-            }
-
-            if (!string.IsNullOrEmpty(name)) {
-                idNames[idxStr] = new { index = idxStr, guid = $"0x{guid:X16}", name = name };
-                resolved++;
-                continue;
-            }
-        }
-    } catch { }
-
-    // Strategy 2: try reading the GUID as STU instance
-    try {
-        var stu_id = ReadSTU<STUIdentifier>(guid);
-        // STUIdentifier is empty, but try to get name from parent fields
-    } catch { }
-
-    failed++;
-    idNames[idxStr] = new { index = idxStr, guid = $"0x{guid:X16}", name = (string?)null };
-}
-
-File.WriteAllText(Path.Combine(outDir, "identifier_names.json"),
-    JsonSerializer.Serialize(idNames.Values.ToList(), new JsonSerializerOptions { WriteIndented = true }));
-Console.Error.WriteLine($"Resolved: {resolved}, Unresolved: {failed}");
 Console.Error.WriteLine("Done!");
