@@ -126,6 +126,29 @@ def main():
 
     # 已知的 buff/debuff 变量
     KNOWN_BUFFS = {
+        # ---- 技能激活状态 (status=1 表示正在使用) ----
+        "0x02B1": ("ABILITY_LMOUSE", "左键/主射击 激活中"),
+        "0x02B2": ("ABILITY_RMOUSE", "右键/副射击 激活中"),
+        "0x28E3": ("ABILITY_SHIFT", "Shift技能 激活中"),
+        "0x28E9": ("ABILITY_E", "E技能 激活中"),
+        "0x0156": ("ABILITY_ULT", "终极技能 激活中"),
+        # ---- 冷却 (status=1 表示冷却中, value=剩余秒数) ----
+        "0x189C": ("CD_SHIFT", "Shift技能 冷却中"),
+        "0x1F89": ("CD_E", "E技能 冷却中"),
+        "0x18D6": ("CD_RMOUSE", "右键 冷却中"),
+        # ---- 大招充能 ----
+        "0x1E32": ("ULT_CHARGE", "终极技能充能百分比 (0~100)"),
+        # ---- 生命值 (运行时验证: Sigma=350, Tracer=175, S76=250) ----
+        "0x1E6A": ("MAX_HP_HEALTH", "基础生命上限"),
+        "0x1E6B": ("MAX_HP_ARMOR", "护甲上限"),
+        "0x1E6C": ("MAX_HP_SHIELD", "护盾上限"),
+        "0x90E2": ("CUR_HP_HEALTH", "当前基础生命"),
+        "0x90E3": ("CUR_HP_ARMOR", "当前护甲"),
+        "0x90E4": ("CUR_HP_SHIELD", "当前护盾"),
+        "0x2537": ("IS_ALIVE", "存活状态 (1=存活)"),
+        "0x0259": ("BASE_HP", "基础HP定义值"),
+        "0x0386": ("TOTAL_HP_DEF", "总HP定义(含护甲护盾)"),
+        # ---- Buff/Debuff (status=1 表示生效中) ----
         "0x200A": ("ANTI_HEAL", "反治疗（安娜瓶）"),
         "0x200B": ("HEAL_BOOST", "治疗加成（安娜瓶）"),
         "0x2018": ("SLEEP", "沉睡（安娜催眠）"),
@@ -141,21 +164,18 @@ def main():
         "0x1155": ("ZEN_HARMONY", "禅雅塔和谐之珠"),
         "0xAE41": ("FIRE_CHARGE", "火力值充能"),
         "0x4C87": ("ON_FIRE", "火力全开"),
-        "0x28E3": ("ABILITY_SHIFT", "Shift技能状态"),
-        "0x28E9": ("ABILITY_E", "E技能状态"),
-        "0x02B1": ("ABILITY_LMOUSE", "左键状态"),
-        "0x02B2": ("ABILITY_RMOUSE", "右键状态"),
-        "0x0156": ("ABILITY_ULT", "终极技能状态"),
-        "0x189C": ("CD_SHIFT", "Shift冷却"),
-        "0x1F89": ("CD_E", "E冷却"),
-        "0x18D6": ("CD_RMOUSE", "右键冷却"),
-        "0x1E32": ("ULT_CHARGE", "终极技能充能百分比"),
-        "0x1E6A": ("MAX_HP_HEALTH", "基础生命上限"),
-        "0x1E6B": ("MAX_HP_ARMOR", "护甲上限"),
-        "0x1E6C": ("MAX_HP_SHIELD", "护盾上限"),
-        "0x90E2": ("CUR_HP_HEALTH", "当前基础生命"),
-        "0x90E3": ("CUR_HP_ARMOR", "当前护甲"),
-        "0x2537": ("IS_ALIVE", "存活状态"),
+        # ---- 战斗/武器参数 (运行时验证) ----
+        "0x00F3": ("WEAPON_SPREAD", "武器散布/精度"),
+        "0xA08C": ("TEAM_ID", "队伍标识 (type=4, 比较用)"),
+        "0xA08D": ("ENEMY_TEAM_ID", "敌方队伍标识"),
+        # ---- 半藏武器参数 (运行时验证: CASC m_amount=125) ----
+        "0xF042": ("HANZO_FULL_DAMAGE", "半藏满蓄力伤害=125 (英雄专属)"),
+        "0xF03F": ("HANZO_MIN_DAMAGE", "半藏最小伤害=25 (英雄专属)"),
+        "0x1262": ("HANZO_FULL_SPEED", "半藏满蓄力弹速=400 (英雄专属)"),
+        "0x1261": ("HANZO_BASE_SPEED", "半藏基础弹速=200 (英雄专属)"),
+        # ---- 位置/朝向 (type=6=vec3) ----
+        "0x0AB6": ("POSITION_X", "世界坐标X (type=6)"),
+        "0x443D": ("POSITION_Y", "世界坐标Y (type=6, 重复)"),
     }
 
     # ====== 生成 gameplay_data_gen.hpp ======
@@ -223,10 +243,14 @@ def main():
             f.write(f"/// {hname} (0x{hid_int:X}) 的武器数据\n")
             f.write(f"inline constexpr WeaponVolleyDef kWeapons_{hid_int:X}[] = {{\n")
             for w in hero_weapons:
-                ps = w["proj_speed"] if w["proj_speed"] is not None else 0
-                pl = w["proj_lifetime"] if w["proj_lifetime"] is not None else 0
-                sps = w["shots_per_sec"] if w["shots_per_sec"] is not None else 0
-                rng = w["range"] if w["range"] is not None else 0
+                def safe_int(v): return int(v) if isinstance(v, (int,float)) and v == v else 0
+                def safe_float(v):
+                    if isinstance(v, (int,float)) and v == v: return f"{float(v):.1f}"
+                    return "0.0"
+                ps = safe_int(w.get("proj_speed") or 0)
+                pl = safe_float(w.get("proj_lifetime") or 0)
+                sps = safe_int(w.get("shots_per_sec") or 0)
+                rng = safe_float(w.get("range") or 0)
                 f.write(f'    {{"{hname}", {w["graph"]}, "{w["type"]}", {ps}, {pl}f, {sps}, {rng}f}},\n')
             f.write("};\n\n")
 
@@ -252,8 +276,9 @@ def main():
             f.write(f"/// {hname} (0x{hid_int:X}) 的技能节点\n")
             f.write(f"inline constexpr AbilityNodeDef kAbilityNodes_{hid_int:X}[] = {{\n")
             for s in hero_skills:
-                ad = s["activation_delay"] if s["activation_delay"] is not None else 0
-                f.write(f'    {{"{hname}", {s["graph"]}, {ad}f}},\n')
+                ad_raw = s.get("activation_delay")
+                ad = float(ad_raw) if isinstance(ad_raw, (int, float)) else 0.0
+                f.write(f'    {{"{hname}", {s["graph"]}, {ad:.2f}f}},\n')
             f.write("};\n\n")
 
         # ---- 4. 运行时读取指南 ----
