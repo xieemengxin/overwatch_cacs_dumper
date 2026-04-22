@@ -1,0 +1,3 @@
+[submodule "deps/OWLib"]
+	path = deps/OWLib
+	url = https://github.com/overtools/OWLib.git

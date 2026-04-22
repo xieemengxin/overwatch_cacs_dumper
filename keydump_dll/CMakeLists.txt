@@ -1,0 +1,11 @@
+cmake_minimum_required(VERSION 3.20)
+project(keydump LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+add_library(keydump SHARED keydump.cpp)
+target_link_libraries(keydump PRIVATE user32 kernel32)
+target_compile_definitions(keydump PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+if(MINGW)
+    target_link_options(keydump PRIVATE -static-libgcc -static-libstdc++ -static)
+endif()
+set_target_properties(keydump PROPERTIES PREFIX "" SUFFIX ".dll")
