@@ -185,6 +185,45 @@ foreach (var kvp in tank.m_assets) {
         var entDef = entStu.GetInstance<STUEntityDefinition>();
         if (entDef?.m_componentMap == null) continue;
 
+        // Extract WeaponComponent data
+        var weaponData = new List<object>();
+        foreach (var comp in entDef.m_componentMap) {
+            if (comp.Value is STUWeaponComponent wc && wc.m_weapons != null) {
+                foreach (var wd in wc.m_weapons) {
+                    if (wd?.m_graph == null) continue;
+                    var wGraphGuid = (ulong)wd.m_graph.m_graph;
+                    var wOverrides = new List<object>();
+                    if (wd.m_graph.m_1EB5A024 != null) {
+                        foreach (var ov in wd.m_graph.m_1EB5A024) {
+                            var ovIdx = ov.m_0D09D2D9 != 0 ? $"0x{teResourceGUID.Index(ov.m_0D09D2D9):X}" : null;
+                            string? ovVal = null;
+                            if (ov.m_value is STUConfigVarFloat fv2) ovVal = $"{fv2.m_value}";
+                            else if (ov.m_value is STUConfigVarInt iv2) ovVal = $"{iv2.m_value}";
+                            else if (ov.m_value is STUConfigVarBool bv2) ovVal = $"{bv2.m_value}";
+                            wOverrides.Add(new { id = ovIdx, val = ovVal, type = ov.m_value?.GetType().Name });
+                        }
+                    }
+                    weaponData.Add(new {
+                        graph_guid = wGraphGuid != 0 ? $"0x{wGraphGuid:X16}" : null,
+                        graph_index = wGraphGuid != 0 ? $"0x{teResourceGUID.Index(wGraphGuid):X}" : null,
+                        overrides = wOverrides,
+                    });
+                }
+            }
+        }
+
+        // Extract HealthComponent data
+        object? healthData = null;
+        foreach (var comp in entDef.m_componentMap) {
+            if (comp.Value is STUHealthComponent hc2) {
+                healthData = new {
+                    death_effect = hc2.m_deathEffect != 0 ? $"0x{teResourceGUID.Index(hc2.m_deathEffect):X}" : null,
+                    respawn_time = hc2.m_5AF3C1F6,
+                };
+                break;
+            }
+        }
+
         // Find STUStatescriptComponent in entity definition
         STUStatescriptComponent? ssComp = null;
         foreach (var comp in entDef.m_componentMap) {
@@ -226,7 +265,7 @@ foreach (var kvp in tank.m_assets) {
                     }
                 }
 
-                // Extract node → var bindings via RemoteSyncVar + node labels
+                // Extract full node data: sync var bindings + ConfigVar literal values
                 var nodeVarRefs = new List<object>();
                 int _nodeTotal = 0, _nodeNull = 0;
                 if (graphGuid != 0) {
@@ -239,7 +278,7 @@ foreach (var kvp in tank.m_assets) {
                             var nodeLabel = node.m_049CA107?.Value?.TrimEnd('\0')?.Trim();
                             var nodeId = node.m_uniqueID;
 
-                            // m_BF5B22B7 = output sync vars, m_8BF03679 = input sync vars
+                            // Sync var bindings (writes/reads)
                             var writeVars = new List<object>();
                             if (node.m_BF5B22B7 != null) {
                                 foreach (var sv in node.m_BF5B22B7) {
@@ -259,14 +298,56 @@ foreach (var kvp in tank.m_assets) {
                                 }
                             }
 
-                            if (writeVars.Count > 0 || readVars.Count > 0 || !string.IsNullOrEmpty(nodeLabel)) {
+                            // Extract ALL ConfigVar literal values from node fields
+                            var configValues = new List<object>();
+                            void ExtractValues(object obj, string prefix, int depth) {
+                                if (obj == null || depth > 3) return;
+                                foreach (var field in obj.GetType().GetFields()) {
+                                    var val = field.GetValue(obj);
+                                    if (val == null) continue;
+                                    var fname = prefix + field.Name;
+
+                                    if (val is STUConfigVarFloat fv) {
+                                        configValues.Add(new { field = fname, type = "float", value = (object)fv.m_value });
+                                    } else if (val is STUConfigVarInt iv) {
+                                        configValues.Add(new { field = fname, type = "int", value = (object)iv.m_value });
+                                    } else if (val is STUConfigVarBool bv) {
+                                        configValues.Add(new { field = fname, type = "bool", value = (object)(bv.m_value != 0) });
+                                    } else if (val is STUConfigVar cv) {
+                                        var cvType = cv.GetType().Name;
+                                        bool isDynamic = cvType == "STU_076E0DBA" || cvType == "STUConfigVarDynamic";
+                                        if (isDynamic && cv.m_EE729DCB != 0) {
+                                            var g2 = cv.m_EE729DCB;
+                                            configValues.Add(new { field = fname, type = "dynamic",
+                                                value = (object)(teResourceGUID.Type(g2) == 0x1C ? $"var:0x{teResourceGUID.Index(g2):X}" : $"ref:0x{g2:X}") });
+                                        } else if (isDynamic) {
+                                            configValues.Add(new { field = fname, type = "dynamic", value = (object)"(bound)" });
+                                        }
+                                    }
+
+                                    // Recurse into sub-objects (but not ConfigVar which we handled above)
+                                    if (val is STUInstance sub && !(val is STUConfigVar) && depth < 2) {
+                                        ExtractValues(sub, fname + ".", depth + 1);
+                                    }
+                                    // Handle arrays of STU instances
+                                    if (val is STUInstance[] arr) {
+                                        for (int ai = 0; ai < arr.Length && ai < 8; ai++) {
+                                            if (arr[ai] != null) ExtractValues(arr[ai], $"{fname}[{ai}].", depth + 1);
+                                        }
+                                    }
+                                }
+                            }
+                            ExtractValues(node, "", 0);
+
+                            if (writeVars.Count > 0 || readVars.Count > 0 || configValues.Count > 0 || !string.IsNullOrEmpty(nodeLabel)) {
                                 nodeVarRefs.Add(new {
                                     node_type = nodeType, node_id = nodeId, label = nodeLabel,
                                     writes = writeVars, reads = readVars,
+                                    config = configValues,
                                 });
                             }
 
-                            // Also keep old ConfigVar extraction for non-sync data
+                            // Legacy code compatibility marker
                             var nodeType2 = nodeType;
                             var refs = new List<object>();
 
@@ -369,6 +450,9 @@ foreach (var kvp in tank.m_assets) {
         ssDataList.Add(new {
             hero_id = $"0x{heroIdx:X}",
             hero_name = heroName,
+            weapon_count = weaponData.Count,
+            weapons = weaponData,
+            health = healthData,
             graph_count = graphEntries.Count,
             graphs = graphEntries,
             component_schema_count = compSchema.Count,
