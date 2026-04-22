@@ -167,8 +167,9 @@ File.WriteAllText(Path.Combine(outDir, "loadouts.json"),
 Console.Error.WriteLine($"Wrote {loadoutList.Count} loadouts to loadouts.json");
 
 // ============ 3. Statescript via entity definition → StatescriptComponent → graph GUIDs ============
-Console.Error.WriteLine("Dumping statescript data...");
-var ssDataList = new List<object>();
+Console.Error.WriteLine("Dumping entity & statescript data...");
+var componentList = new List<object>();
+var graphDataList = new List<object>();
 
 foreach (var kvp in tank.m_assets) {
     if (teResourceGUID.Type(kvp.Key) != 0x75) continue;
@@ -494,10 +495,16 @@ foreach (var kvp in tank.m_assets) {
             }
         }
 
-        ssDataList.Add(new {
+        // Collect per-hero data into separate lists
+        componentList.Add(new {
             hero_id = $"0x{heroIdx:X}",
             hero_name = heroName,
-            entity_components = componentDump,
+            components = componentDump,
+        });
+
+        graphDataList.Add(new {
+            hero_id = $"0x{heroIdx:X}",
+            hero_name = heroName,
             graph_count = graphEntries.Count,
             graphs = graphEntries,
             component_schema_count = compSchema.Count,
@@ -505,12 +512,56 @@ foreach (var kvp in tank.m_assets) {
             client_only = ssComp.m_clientOnly,
         });
     } catch (Exception ex) {
-        Console.Error.WriteLine($"  Hero 0x{heroIdx:X} ss error: {ex.Message}");
+        Console.Error.WriteLine($"  Hero 0x{heroIdx:X} error: {ex.Message}");
     }
 }
 
-File.WriteAllText(Path.Combine(outDir, "statescript_data.json"),
-    JsonSerializer.Serialize(ssDataList, jsonOpt));
-Console.Error.WriteLine($"Wrote {ssDataList.Count} hero statescript data to statescript_data.json");
+// Write split output files
+File.WriteAllText(Path.Combine(outDir, "entity_components.json"),
+    JsonSerializer.Serialize(componentList, jsonOpt));
+Console.Error.WriteLine($"Wrote {componentList.Count} heroes to entity_components.json");
+
+// Split graphs: sync_vars + schema into one file, node details into another
+var graphSyncList = new List<object>();
+var graphNodeList = new List<object>();
+foreach (var gd in graphDataList) {
+    // Use reflection-free approach: serialize then re-parse
+    var je = JsonSerializer.SerializeToElement(gd, jsonOpt);
+    var hid = je.GetProperty("hero_id").GetString();
+    var hname = je.GetProperty("hero_name").GetString();
+
+    var syncGraphs = new List<object>();
+    var nodeGraphs = new List<object>();
+    foreach (var g in je.GetProperty("graphs").EnumerateArray()) {
+        // Sync vars + schema (lightweight)
+        syncGraphs.Add(new {
+            graph_guid = g.TryGetProperty("graph_guid", out var gg) ? gg.GetString() : null,
+            graph_index = g.TryGetProperty("graph_index", out var gi) ? gi.GetString() : null,
+            sync_var_count = g.GetProperty("sync_var_count").GetInt32(),
+            sync_vars = JsonSerializer.Deserialize<JsonElement>(g.GetProperty("sync_vars").GetRawText()),
+            schema_count = g.GetProperty("schema_count").GetInt32(),
+            public_schema = JsonSerializer.Deserialize<JsonElement>(g.GetProperty("public_schema").GetRawText()),
+            override_count = g.GetProperty("override_count").GetInt32(),
+            overrides = JsonSerializer.Deserialize<JsonElement>(g.GetProperty("overrides").GetRawText()),
+        });
+        // Node details (heavy)
+        nodeGraphs.Add(new {
+            graph_index = g.TryGetProperty("graph_index", out var gi2) ? gi2.GetString() : null,
+            node_var_ref_count = g.GetProperty("node_var_ref_count").GetInt32(),
+            node_var_refs = JsonSerializer.Deserialize<JsonElement>(g.GetProperty("node_var_refs").GetRawText()),
+        });
+    }
+
+    graphSyncList.Add(new { hero_id = hid, hero_name = hname, graphs = syncGraphs });
+    graphNodeList.Add(new { hero_id = hid, hero_name = hname, graphs = nodeGraphs });
+}
+
+File.WriteAllText(Path.Combine(outDir, "graph_sync_vars.json"),
+    JsonSerializer.Serialize(graphSyncList, jsonOpt));
+Console.Error.WriteLine($"Wrote {graphSyncList.Count} heroes to graph_sync_vars.json");
+
+File.WriteAllText(Path.Combine(outDir, "graph_nodes.json"),
+    JsonSerializer.Serialize(graphNodeList, jsonOpt));
+Console.Error.WriteLine($"Wrote {graphNodeList.Count} heroes to graph_nodes.json");
 
 Console.Error.WriteLine("Done!");

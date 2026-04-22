@@ -30,7 +30,14 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
 
     heroes = json.load(open(os.path.join(dump_dir, "heroes.json"), encoding="utf-8"))
-    ss_data = json.load(open(os.path.join(dump_dir, "statescript_data.json"), encoding="utf-8"))
+    # Support both old (statescript_data.json) and new split format
+    ss_file = os.path.join(dump_dir, "graph_sync_vars.json")
+    if not os.path.exists(ss_file):
+        ss_file = os.path.join(dump_dir, "statescript_data.json")
+    ss_data = json.load(open(ss_file, encoding="utf-8"))
+    # Node data for var context
+    node_file = os.path.join(dump_dir, "graph_nodes.json")
+    node_data = json.load(open(node_file, encoding="utf-8")) if os.path.exists(node_file) else ss_data
 
     # ====== 构建 hero → abilities 映射 ======
     hero_map = {}
@@ -55,7 +62,7 @@ def main():
 
     graph_ability_map = {}  # (hero_id, graph_idx) → ability guess
 
-    for h in ss_data:
+    for h in node_data:
         hid = h["hero_id"]
         hname = clean(h.get("hero_name",""))
         for gi, g in enumerate(h.get("graphs", [])):
