@@ -185,43 +185,90 @@ foreach (var kvp in tank.m_assets) {
         var entDef = entStu.GetInstance<STUEntityDefinition>();
         if (entDef?.m_componentMap == null) continue;
 
-        // Extract WeaponComponent data
-        var weaponData = new List<object>();
-        foreach (var comp in entDef.m_componentMap) {
-            if (comp.Value is STUWeaponComponent wc && wc.m_weapons != null) {
-                foreach (var wd in wc.m_weapons) {
-                    if (wd?.m_graph == null) continue;
-                    var wGraphGuid = (ulong)wd.m_graph.m_graph;
-                    var wOverrides = new List<object>();
-                    if (wd.m_graph.m_1EB5A024 != null) {
-                        foreach (var ov in wd.m_graph.m_1EB5A024) {
-                            var ovIdx = ov.m_0D09D2D9 != 0 ? $"0x{teResourceGUID.Index(ov.m_0D09D2D9):X}" : null;
-                            string? ovVal = null;
-                            if (ov.m_value is STUConfigVarFloat fv2) ovVal = $"{fv2.m_value}";
-                            else if (ov.m_value is STUConfigVarInt iv2) ovVal = $"{iv2.m_value}";
-                            else if (ov.m_value is STUConfigVarBool bv2) ovVal = $"{bv2.m_value}";
-                            wOverrides.Add(new { id = ovIdx, val = ovVal, type = ov.m_value?.GetType().Name });
-                        }
+        // Generic component field extractor — recursively dumps ALL field values
+        List<object> DumpFields(object obj, int depth = 0) {
+            var result = new List<object>();
+            if (obj == null || depth > 4) return result;
+            foreach (var field in obj.GetType().GetFields()) {
+                var val = field.GetValue(obj);
+                if (val == null) continue;
+                var fname = field.Name;
+                if (fname.StartsWith("m_posIn") || fname == "Usage") continue;
+
+                // Primitives
+                if (val is float fv3) { if (fv3 != 0) result.Add(new { field = fname, type = "float", value = (object)fv3 }); }
+                else if (val is double dv) { if (dv != 0) result.Add(new { field = fname, type = "double", value = (object)dv }); }
+                else if (val is int iv3) { result.Add(new { field = fname, type = "int", value = (object)iv3 }); }
+                else if (val is uint uiv) { if (uiv != 0) result.Add(new { field = fname, type = "uint", value = (object)uiv }); }
+                else if (val is long lv) { if (lv != 0) result.Add(new { field = fname, type = "long", value = (object)lv }); }
+                else if (val is ulong ulv) { if (ulv != 0) result.Add(new { field = fname, type = "ulong", value = (object)$"0x{ulv:X}" }); }
+                else if (val is byte bv3) { if (bv3 != 0) result.Add(new { field = fname, type = "byte", value = (object)bv3 }); }
+                else if (val is bool bov) { if (bov) result.Add(new { field = fname, type = "bool", value = (object)true }); }
+                else if (val is teString ts2) {
+                    var sv = ts2.Value?.TrimEnd('\0')?.Trim();
+                    if (!string.IsNullOrEmpty(sv)) result.Add(new { field = fname, type = "string", value = (object)sv });
+                }
+                // GUID / Asset references
+                else if (val is teResourceGUID guid2 && (ulong)guid2 != 0) {
+                    result.Add(new { field = fname, type = "guid",
+                        value = (object)$"0x{teResourceGUID.Index(guid2):X}.{teResourceGUID.Type(guid2):X3}" });
+                }
+                // Enums
+                else if (val.GetType().IsEnum) {
+                    result.Add(new { field = fname, type = "enum", value = (object)$"{val}" });
+                }
+                // teStructuredDataAssetRef<T> → extract GUID
+                else if (val is ISerializable_STU serSTU) {
+                    var guidField = val.GetType().GetField("GUID");
+                    if (guidField?.GetValue(val) is teResourceGUID arefGuid && (ulong)arefGuid != 0) {
+                        result.Add(new { field = fname, type = "asset_ref",
+                            value = (object)$"0x{teResourceGUID.Index(arefGuid):X}.{teResourceGUID.Type(arefGuid):X3}" });
                     }
-                    weaponData.Add(new {
-                        graph_guid = wGraphGuid != 0 ? $"0x{wGraphGuid:X16}" : null,
-                        graph_index = wGraphGuid != 0 ? $"0x{teResourceGUID.Index(wGraphGuid):X}" : null,
-                        overrides = wOverrides,
-                    });
+                }
+                // STU sub-instances
+                else if (val is STUInstance sub2 && depth < 3) {
+                    var subFields = DumpFields(sub2, depth + 1);
+                    if (subFields.Count > 0)
+                        result.Add(new { field = fname, type = sub2.GetType().Name, children = subFields });
+                }
+                // Arrays of STU instances
+                else if (val is STUInstance[] arrStu && arrStu.Length > 0 && depth < 2) {
+                    var items = new List<object>();
+                    for (int ai2 = 0; ai2 < arrStu.Length && ai2 < 16; ai2++) {
+                        if (arrStu[ai2] == null) continue;
+                        var sf = DumpFields(arrStu[ai2], depth + 1);
+                        if (sf.Count > 0) items.Add(new { index = ai2, type = arrStu[ai2].GetType().Name, fields = sf });
+                    }
+                    if (items.Count > 0)
+                        result.Add(new { field = fname, type = "array", count = arrStu.Length, items });
+                }
+                // Arrays of asset refs
+                else if (val is Array arrGen && arrGen.Length > 0 && arrGen.GetType().GetElementType()?.IsAssignableTo(typeof(ISerializable_STU)) == true) {
+                    var refs = new List<string>();
+                    foreach (var item in arrGen) {
+                        var gf = item?.GetType().GetField("GUID");
+                        if (gf?.GetValue(item) is teResourceGUID rg && (ulong)rg != 0)
+                            refs.Add($"0x{teResourceGUID.Index(rg):X}.{teResourceGUID.Type(rg):X3}");
+                    }
+                    if (refs.Count > 0)
+                        result.Add(new { field = fname, type = "guid_array", count = refs.Count, value = (object)refs });
                 }
             }
+            return result;
         }
 
-        // Extract HealthComponent data
-        object? healthData = null;
+        // Extract ALL entity components
+        var componentDump = new List<object>();
         foreach (var comp in entDef.m_componentMap) {
-            if (comp.Value is STUHealthComponent hc2) {
-                healthData = new {
-                    death_effect = hc2.m_deathEffect != 0 ? $"0x{teResourceGUID.Index(hc2.m_deathEffect):X}" : null,
-                    respawn_time = hc2.m_5AF3C1F6,
-                };
-                break;
-            }
+            if (comp.Value == null) continue;
+            var compType = comp.Value.GetType().Name;
+            var fields = DumpFields(comp.Value);
+            componentDump.Add(new {
+                component_key = $"0x{comp.Key:X8}",
+                component_type = compType,
+                field_count = fields.Count,
+                fields = fields,
+            });
         }
 
         // Find STUStatescriptComponent in entity definition
@@ -450,9 +497,7 @@ foreach (var kvp in tank.m_assets) {
         ssDataList.Add(new {
             hero_id = $"0x{heroIdx:X}",
             hero_name = heroName,
-            weapon_count = weaponData.Count,
-            weapons = weaponData,
-            health = healthData,
+            entity_components = componentDump,
             graph_count = graphEntries.Count,
             graphs = graphEntries,
             component_schema_count = compSchema.Count,
