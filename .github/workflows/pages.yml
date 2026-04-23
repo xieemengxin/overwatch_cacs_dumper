@@ -10,7 +10,7 @@ name: Publish GitHub Pages
 
 on:
   push:
-    branches: [ main ]
+    branches: [ master, main ]
     paths:
       - 'output/**'
       - 'scripts/overrides/**'
