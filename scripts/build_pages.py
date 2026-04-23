@@ -53,7 +53,17 @@ def copy_csv_overrides() -> None:
 
 
 def trim_heroes():
-    heroes = json.load(open(DUMP_DIR / "heroes.json", encoding="utf-8"))
+    src = DUMP_DIR / "heroes.json"
+    existing = DATA_DIR / "heroes.json"
+    if not src.exists():
+        # CI path: dump_json/ is gitignored, so fall back to whatever was already committed.
+        if existing.exists():
+            print(f"  heroes.json: dump_json missing, reusing existing docs/data/heroes.json")
+            return json.load(open(existing, encoding="utf-8"))
+        print("  heroes.json: dump_json and docs/data both missing — emitting empty list")
+        dump_json(existing, [])
+        return []
+    heroes = json.load(open(src, encoding="utf-8"))
     out = []
     for h in heroes:
         if not h.get("is_hero"): continue
@@ -72,12 +82,26 @@ def trim_heroes():
                 "button": lo.get("button"),
             } for lo in h.get("loadouts", [])],
         })
-    dump_json(DATA_DIR / "heroes.json", out)
+    dump_json(existing, out)
     return out
 
 
+def _reuse_existing(name):
+    """Reuse docs/data/<name> as the fallback when source hpp is missing."""
+    existing = DATA_DIR / name
+    if existing.exists():
+        print(f"  {name}: source hpp missing, reusing docs/data/{name}")
+        return json.load(open(existing, encoding="utf-8"))
+    print(f"  {name}: both source and docs/data missing — emitting empty list")
+    dump_json(existing, [])
+    return []
+
+
 def parse_entitydump():
-    hpp = (OUTPUT / "entitydump.hpp").read_text()
+    src = OUTPUT / "entitydump.hpp"
+    if not src.exists():
+        return _reuse_existing("entities.json")
+    hpp = src.read_text()
     out = []
     for m in re.finditer(
         r'\{0x([0-9A-Fa-f]+)u,\s*"([^"]*)",\s*EntityType::(\w+),\s*0x([0-9A-Fa-f]+)u,\s*"([^"]*)",\s*'
@@ -100,7 +124,10 @@ def parse_entitydump():
 
 
 def parse_statevardump():
-    hpp = (OUTPUT / "statevardump.hpp").read_text()
+    src = OUTPUT / "statevardump.hpp"
+    if not src.exists():
+        return _reuse_existing("statevars.json")
+    hpp = src.read_text()
     out = []
     for m in re.finditer(
         r'\{0x([0-9A-Fa-f]+)u,\s*"([^"]+)",\s*StateVarKind::(\w+),\s*StateVarDomain::(\w+),\s*"([^"]*)"\},', hpp
@@ -118,7 +145,10 @@ def parse_statevardump():
 
 
 def parse_weapondump():
-    hpp = (OUTPUT / "weapondump.hpp").read_text()
+    src = OUTPUT / "weapondump.hpp"
+    if not src.exists():
+        return _reuse_existing("weapons.json")
+    hpp = src.read_text()
     out = []
     for m in re.finditer(
         r'\{0x([0-9A-Fa-f]+)u,\s*"([^"]+)",\s*0x([0-9A-Fa-f]+)u,\s*(-?\d+),\s*(\d+)u,\s*'
@@ -145,7 +175,10 @@ def parse_weapondump():
 
 
 def parse_herokitdump():
-    hpp = (OUTPUT / "herokitdump.hpp").read_text()
+    src = OUTPUT / "herokitdump.hpp"
+    if not src.exists():
+        return _reuse_existing("herokits.json")
+    hpp = src.read_text()
     out = []
     for m in re.finditer(
         r'\{0x([0-9A-Fa-f]+)u,\s*"([^"]+)",\s*(\d+)u,\s*(true|false),\s*(true|false),\s*(true|false),', hpp
@@ -206,16 +239,29 @@ def write_summary(heroes, entities, statevars, weapons, usage):
     def count_by(xs, key):
         return dict(Counter(x.get(key) for x in xs).most_common())
 
-    # Try to read build/version from a .build.info or fall back to a known constant
     build = "148494"
     version = "2.22.0.0.148915N (CN)"
+
+    # heroes_total / loadouts: read from raw dump if present, else carry over existing summary
+    heroes_total = len(heroes)
+    loadouts_count = 0
+    if (DUMP_DIR / "heroes.json").exists():
+        heroes_total = len(json.load(open(DUMP_DIR / "heroes.json", encoding="utf-8")))
+    if (DUMP_DIR / "loadouts.json").exists():
+        loadouts_count = len(json.load(open(DUMP_DIR / "loadouts.json", encoding="utf-8")))
+    else:
+        existing = DATA_DIR / "summary.json"
+        if existing.exists():
+            prev = json.load(open(existing, encoding="utf-8"))
+            heroes_total = prev.get("heroes_total", heroes_total)
+            loadouts_count = prev.get("loadouts", 0)
 
     summary = {
         "build": build,
         "version": version,
         "heroes_playable": len(heroes),
-        "heroes_total": len(json.load(open(DUMP_DIR / "heroes.json", encoding="utf-8"))),
-        "loadouts": len(json.load(open(DUMP_DIR / "loadouts.json", encoding="utf-8"))),
+        "heroes_total": heroes_total,
+        "loadouts": loadouts_count,
         "entities_total": 1957,
         "entities_named": len([e for e in entities if e["hero_id"] or (e["name"] and not e["name"].startswith("0x"))]),
         "entities_with_slot": len([e for e in entities if e["slot"] != "None"]),
