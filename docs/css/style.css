@@ -143,10 +143,15 @@ th {
      (border-bottom on sticky th disappears when the row scrolls behind). */
   box-shadow: inset 0 -1px 0 var(--border);
 }
-/* Note: we deliberately do NOT make thead sticky. Keeping it scroll-with-content
-   avoids the "header covers the first row" bug we had before. The filter bar
-   below is sticky instead, which is what users actually need while scrolling
-   long lists (search/filter always reachable). */
+/* Sticky header ONLY for makeTable-created list tables (tag .sticky-head).
+   Nested tables inside hero detail cards stay non-sticky so they don't
+   overlap their own rows. The <th> carries its own opaque background —
+   thead can't actually paint a background in sticky tables. */
+table.sticky-head thead th {
+  position: sticky;
+  top: 52px;  /* below navbar */
+  z-index: 5;
+}
 th:hover { color: var(--accent); }
 th.sort-asc::after { content: " ▲"; color: var(--accent); }
 th.sort-desc::after { content: " ▼"; color: var(--accent); }
@@ -187,10 +192,6 @@ tr:hover td { background: rgba(249, 158, 26, 0.05); }
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 8px;
-  /* Sticky below navbar so search/filters stay reachable while scrolling tables. */
-  position: sticky;
-  top: 52px;
-  z-index: 20;
 }
 .filters input, .filters select {
   background: var(--bg);
