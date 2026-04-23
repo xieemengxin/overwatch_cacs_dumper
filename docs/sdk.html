@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>OW CASC Dumper — SDK Headers</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="js/app.js" defer></script>
+</head>
+<body>
+  <div class="app">
+    <div id="nav-mount"></div>
+    <main>
+      <h1>SDK Headers</h1>
+      <p class="subtitle">6 个自动生成的 C++ 头文件。都是 constexpr,可以直接 drop into 项目使用。</p>
+
+      <div class="tabs" id="tabs"></div>
+      <div id="panel-mount"></div>
+    </main>
+    <div id="footer-mount"></div>
+  </div>
+
+  <script>
+    const FILES = [
+      { id: 'namedump', file: 'namedump.hpp', desc: '50 个可选英雄的 HeroInfo 表 (id, name_zhCN, gender, size, color)' },
+      { id: 'abilitydump', file: 'abilitydump.hpp', desc: '793 个 loadout 的 Ability 表,按 hero 分组,附 AbilitySlot/AbilityCategory 枚举' },
+      { id: 'entitydump', file: 'entitydump.hpp', desc: '2036 个 entity 的 EntityInfo 表,含 owner_hero_id / loadout_id / button_raw / slot' },
+      { id: 'statevardump', file: 'statevardump.hpp', desc: '4567 个 state var 的 StateVar 表,含 kind/domain 分类 + 来源 desc' },
+      { id: 'weapondump', file: 'weapondump.hpp', desc: '131 个 WeaponVolley 弹道数据,含 ballistic/speed/lifetime/pellets/projectile ref' },
+      { id: 'herokitdump', file: 'herokitdump.hpp', desc: '50 个 hero 的 kit 汇总,含 graph_count / has_deflect / has_projectile_weapon / graph 明细' },
+      { id: 'vars', file: 'vars.csv', desc: 'statevardump 的扁平 CSV 版,Excel 打开可自由排序筛选' },
+    ];
+
+    (async () => {
+      const summary = await loadJSON('data/summary.json');
+      $('#nav-mount').replaceWith(renderNav('sdk', `Build ${summary.build}`));
+      $('#footer-mount').replaceWith(renderFooter());
+
+      const tabs = $('#tabs');
+      FILES.forEach((f, i) => {
+        tabs.append(el('div', {
+          class: 'tab' + (i === 0 ? ' active' : ''),
+          'data-id': f.id,
+          onclick: () => showTab(f)
+        }, f.file));
+      });
+
+      async function showTab(f) {
+        $$('.tab', tabs).forEach(t => t.classList.toggle('active', t.dataset.id === f.id));
+        const src = await loadText(`sdk/${f.file}`);
+        const size = new Blob([src]).size;
+        const lines = src.split('\n').length;
+        const panel = el('div', {},
+          el('div', { class: 'card', style: 'margin-bottom:12px' },
+            el('div', {}, el('b', {}, f.file), ' — ', f.desc),
+            el('div', { style: 'font-size:12px; color:var(--fg-dim); margin-top:6px' },
+              el('span', { class: 'pill mono' }, `${lines} lines`),
+              ' ',
+              el('span', { class: 'pill mono' }, `${(size/1024).toFixed(1)} KB`),
+              ' ',
+              el('a', { href: `sdk/${f.file}`, target: '_blank' }, '↗ 下载原文件')
+            ),
+          ),
+          f.file.endsWith('.csv')
+            ? el('pre', { class: 'csv', html: src.replace(/</g,'&lt;').replace(/>/g,'&gt;') })
+            : el('pre', { class: 'code', html: highlightHpp(src) })
+        );
+        const mount = $('#panel-mount');
+        mount.innerHTML = '';
+        mount.append(panel);
+      }
+      showTab(FILES[0]);
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>OW CASC Dumper — CSV Overrides</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="js/app.js" defer></script>
+</head>
+<body>
+  <div class="app">
+    <div id="nav-mount"></div>
+    <main>
+      <h1>CSV Overrides</h1>
+      <p class="subtitle">手工补全 / 精修 auto-dump 的条目。生成 SDK 时 CSV 优先级高于自动分类。字段填 <code>*</code> 或留空表示"继承自动值"。</p>
+
+      <div class="tabs" id="tabs"></div>
+      <div id="panel-mount"></div>
+    </main>
+    <div id="footer-mount"></div>
+  </div>
+
+  <script>
+    const CSVS = [
+      { id: 'entities', file: 'overrides_entities.csv', title: 'entities.csv',
+        desc: '为 auto-dump 漏掉 / 命名不精确的 entity 补全信息 (血包 / legacy ID / 哨戒炮台 等)。15 个覆盖条目。' },
+      { id: 'statevars', file: 'overrides_statevars.csv', title: 'statevars.csv',
+        desc: 'state var 命名覆盖 + 社区实证 var 注入 (AIMING / SNIPER_CHARGE / ABILITY_RMB 等)。32 个覆盖条目 (11 patched + 10 added new)。' },
+      { id: 'heroes', file: 'overrides_heroes.csv', title: 'heroes.csv',
+        desc: 'hero 名字覆盖 (极少使用,目前空)。' },
+    ];
+
+    function renderCsvTable(raw) {
+      // Render CSV with color-coded comment lines vs data lines.
+      const lines = raw.split('\n');
+      const container = el('pre', { class: 'csv' });
+      let headerSeen = false;
+      lines.forEach(line => {
+        const span = el('div');
+        const trimmed = line.trimStart();
+        if (!line) { span.innerHTML = '&nbsp;'; container.append(span); return; }
+        if (trimmed.startsWith('#')) {
+          span.style.color = 'var(--fg-subtle)';
+          span.style.fontStyle = 'italic';
+          span.textContent = line;
+        } else if (!headerSeen) {
+          span.style.color = 'var(--accent-cool)';
+          span.style.fontWeight = 'bold';
+          span.textContent = line;
+          headerSeen = true;
+        } else {
+          // Data row — colorize hex-looking first column
+          const m = line.match(/^(\s*)(0x[0-9A-Fa-f]+)(,)(.*)$/);
+          if (m) {
+            span.append(document.createTextNode(m[1]));
+            const hex = el('span', { style: 'color: var(--accent); font-weight:600' }, m[2]);
+            span.append(hex, document.createTextNode(m[3]), document.createTextNode(m[4]));
+          } else {
+            span.textContent = line;
+          }
+        }
+        container.append(span);
+      });
+      return container;
+    }
+
+    (async () => {
+      const summary = await loadJSON('data/summary.json');
+      $('#nav-mount').replaceWith(renderNav('overrides', `Build ${summary.build}`));
+      $('#footer-mount').replaceWith(renderFooter());
+
+      const tabs = $('#tabs');
+      CSVS.forEach((c, i) => {
+        tabs.append(el('div', {
+          class: 'tab' + (i === 0 ? ' active' : ''),
+          'data-id': c.id,
+          onclick: () => showTab(c)
+        }, c.title));
+      });
+
+      async function showTab(c) {
+        $$('.tab', tabs).forEach(t => t.classList.toggle('active', t.dataset.id === c.id));
+        const src = await loadText(c.file);
+        // Count non-comment non-header data rows
+        const lines = src.split('\n').filter(l => l.trim() && !l.trim().startsWith('#'));
+        const dataRows = Math.max(0, lines.length - 1);
+        const panel = el('div', {},
+          el('div', { class: 'card', style: 'margin-bottom:12px' },
+            el('div', {}, el('b', {}, c.title), ' — ', c.desc),
+            el('div', { style: 'font-size:12px; color:var(--fg-dim); margin-top:6px' },
+              el('span', { class: 'pill mono' }, `${dataRows} 条覆盖`),
+              ' ',
+              el('a', { href: c.file, target: '_blank' }, '↗ 原文件'),
+              ' · 编辑后重跑 ',
+              el('span', { class: 'mono' }, 'python3 scripts/generate_sdk_v2.py'),
+              ' 应用。'
+            ),
+          ),
+          renderCsvTable(src),
+        );
+        const mount = $('#panel-mount');
+        mount.innerHTML = '';
+        mount.append(panel);
+      }
+      showTab(CSVS[0]);
+    })();
+  </script>
+</body>
+</html>

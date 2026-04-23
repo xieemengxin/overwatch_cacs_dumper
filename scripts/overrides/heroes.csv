@@ -1,0 +1,11 @@
+# Manual hero overrides — applied AFTER heroes.json load.
+# Use this sparingly; most hero data should come straight from CASC.
+#
+# Fields:
+#   hero_id : hex "0x..." (required)
+#   name    : override display name. "*" to keep CASC name.
+#   notes   : free text
+#
+# hero_id, name, notes
+#
+# --- Add your overrides below this line ---

@@ -1,0 +1,42 @@
+# Manual entity overrides — applied AFTER auto-dump so they win on conflict.
+#
+# Coverage status (after enhancement pass):
+#   Auto-dumper finds 510 hero-bound entities via: WeaponVolley / CreateEntity /
+#   CosmeticEntity / Pet / StateStack / STUHero field refs / loadout ConfigVar scan.
+#
+# This file fills 2 gaps:
+#   (A) Map-level pickups (health packs etc.) that aren't referenced from any hero graph
+#   (B) Community-documented hero entities where our graph association missed the specific name
+#       (either because ID drifted between OW1/OW2, or spawn path uses dynamic ConfigVar)
+#
+# Fields:
+#   entity_id        : hex "0x..." (required)
+#   name             : display name. "*" to keep auto-name if one exists.
+#   type             : Turret | Projectile | Summon | Bot | Decoy | Other
+#   owner_hero_id    : hex "0x..." or 0 if not hero-bound
+#   owner_hero_name  : string
+#   loadout_id       : hex "0x..." or 0
+#   loadout_name     : string
+#   button_raw       : "技能 1" / "技能 2" / "技能 3" / "主要攻击模式" / "辅助攻击模式" etc.
+#   slot             : LMB | RMB | Shift | E | Ult | Passive | None
+#   notes            : free text (ignored by generator)
+entity_id, name, type, owner_hero_id, owner_hero_name, loadout_id, loadout_name, button_raw, slot, notes
+# === Map-level health pack pickups (not in any hero graph) ===
+0x5F,   大血包,                Other,      0,     "",       0,     "",          "",         None, community-documented map pickup +250 HP
+0x60,   小血包,                Other,      0,     "",       0,     "",          "",         None, community-documented map pickup +75 HP
+# === Community-documented hero entities where auto-name is less descriptive ===
+0x103A, 狂鼠_捕兽夹,            Turret,     0x65,  狂鼠,      0xCC,  捕兽夹,      "技能 2",   E,    placed trap
+0x2658, 秩序之光_哨戒炮台,      Turret,     0x16,  秩序之光,   0x36,  哨戒炮台,    "技能 1",   Shift, OW1-legacy id for Sym sentry
+0x28B7, 托比昂_炮台_Legacy,    Turret,     0x6,   托比昂,     0x225, 部署炮台,    "技能 1",   Shift, legacy id (new id 0x2931 auto-matched)
+0x4504, 生命之梭_花瓣平台_Legacy, Other,    0x291, 生命之梭,   0x2D4, 花瓣平台,    "技能 1",   Shift, legacy id (new id 0x450F auto-matched)
+0x4BCA, 伊拉锐_治疗光塔_Legacy, Turret,     0x31C, 伊拉锐,     0x355, 治疗光塔,    "技能 2",   E,    legacy id (new id 0x4B4A auto-matched)
+0x16BB, 鲍勃_variant,          Summon,     0x200, 艾什,       0x20C, 召唤鲍勃,    "技能 3",   Ult,  secondary BOB id
+0xAE,   寡妇_毒蝶雷_Legacy,    Projectile, 0xA,   黑百合,     0,     "",          "",         None, OW1 Venom Mine (removed in OW2)
+# === Entity 已 auto-match 到 hero 但 loadout 为空 / 名字是 slot_N,这里精细化为具体 ability ===
+0x25C3, 艾什_鲍勃_Summon,       Summon,     0x200, 艾什,       0x20C, 召唤鲍勃,    "技能 3",   Ult,  refine slot6
+0x29A9, 巴蒂斯特_维生力场,      Summon,     0x221, 巴蒂斯特,   0x241, 维生力场,    "技能 2",   E,    refine slot4 (aka Immortality Field)
+0x932,  美_冰墙,                Summon,     0xDD,  美,         0xD7,  冰墙,        "技能 2",   E,    refine slot4
+0x26B0, 秩序之光_光子屏障_Ult,  Other,      0x16,  秩序之光,   0xFD,  光子屏障,    "技能 3",   Ult,  refine slot4 (OW2 ult)
+0x26F2, 秩序之光_传送面板_入口, Other,      0x16,  秩序之光,   0x35,  传送面板,    "技能 2",   E,    teleporter entry
+0x272D, 秩序之光_传送面板_出口, Other,      0x16,  秩序之光,   0x35,  传送面板,    "技能 2",   E,    teleporter exit
+# === Add your overrides below this line ===

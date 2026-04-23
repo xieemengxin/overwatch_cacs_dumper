@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>OW CASC Dumper — Heroes</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="js/app.js" defer></script>
+</head>
+<body>
+  <div class="app">
+    <div id="nav-mount"></div>
+    <main>
+      <h1>Heroes</h1>
+      <p class="subtitle">50 个可选英雄 · 点击卡片查看 loadouts / entities / weapons / hero kit 信息</p>
+
+      <div class="filters">
+        <input type="search" id="search" placeholder="🔍 按英雄名 / ID 筛选…">
+        <span class="count" id="count"></span>
+      </div>
+
+      <div id="grid" class="hero-grid"></div>
+
+      <div id="detail"></div>
+    </main>
+    <div id="footer-mount"></div>
+  </div>
+
+  <script>
+    (async () => {
+      const [summary, heroes, entities, weapons, kits] = await Promise.all([
+        loadJSON('data/summary.json'),
+        loadJSON('data/heroes.json'),
+        loadJSON('data/entities.json'),
+        loadJSON('data/weapons.json'),
+        loadJSON('data/herokits.json'),
+      ]);
+      $('#nav-mount').replaceWith(renderNav('heroes', `Build ${summary.build}`));
+      $('#footer-mount').replaceWith(renderFooter());
+
+      const entitiesByHero = {};
+      entities.forEach(e => {
+        if (!e.hero_id) return;
+        (entitiesByHero[e.hero_id] ??= []).push(e);
+      });
+      const weaponsByHero = {};
+      weapons.forEach(w => (weaponsByHero[w.hero_id] ??= []).push(w));
+      const kitByHero = Object.fromEntries(kits.map(k => [k.hero_id, k]));
+
+      heroes.sort((a, b) => hexSort(a.hero_id) - hexSort(b.hero_id));
+
+      function renderCard(h) {
+        return el('div', { class: 'hero-card', onclick: () => openDetail(h) },
+          el('div', { class: 'hc-color', style: `background: ${h.color || '#333'}` }),
+          el('div', { class: 'hc-name' }, h.name || '?'),
+          el('div', { class: 'hc-id' }, h.hero_id),
+          el('div', { class: 'hc-meta' },
+            el('span', { class: 'pill' }, `${h.loadouts.length} loadouts`),
+            h.gender ? el('span', { class: 'pill' }, h.gender) : null,
+            h.size ? el('span', { class: 'pill' }, h.size) : null,
+            (kitByHero[h.hero_id]?.has_deflect) ? el('span', { class: 'pill orange' }, 'deflect') : null,
+            (kitByHero[h.hero_id]?.has_projectile_weapon) ? el('span', { class: 'pill blue' }, 'projectile') : null,
+            (kitByHero[h.hero_id]?.has_beam_weapon) ? el('span', { class: 'pill green' }, 'beam') : null,
+          ),
+        );
+      }
+
+      function renderAll(list) {
+        $('#count').textContent = `${list.length} / ${heroes.length} 个英雄`;
+        const g = $('#grid');
+        g.innerHTML = '';
+        list.forEach(h => g.append(renderCard(h)));
+      }
+
+      $('#search').addEventListener('input', e => {
+        const q = e.target.value.toLowerCase().trim();
+        if (!q) { renderAll(heroes); return; }
+        renderAll(heroes.filter(h =>
+          (h.name || '').toLowerCase().includes(q) ||
+          h.hero_id.toLowerCase().includes(q)
+        ));
+      });
+
+      function slotEmoji(slot) {
+        return ({ LMB:'🖱️', RMB:'🖱️²', Shift:'⇧', E:'E', Ult:'Q', Passive:'🌀' }[slot] || '·');
+      }
+
+      function renderDetail(h) {
+        const kit = kitByHero[h.hero_id] || {};
+        const ents = (entitiesByHero[h.hero_id] || []).slice().sort((a,b)=>hexSort(a.id)-hexSort(b.id));
+        const wps = weaponsByHero[h.hero_id] || [];
+        const loadouts = h.loadouts.slice().sort((a,b) => {
+          const ord = { 主要攻击模式:1, 辅助攻击模式:2, '技能 1':3, '技能 2':4, '技能 3':5 };
+          return (ord[a.button] || 99) - (ord[b.button] || 99);
+        });
+        return el('div', { class: 'card', style: 'margin-top:24px' },
+          el('h2', {}, `${h.name} `, el('span', { class: 'pill mono' }, h.hero_id)),
+          el('div', { class: 'hc-meta', style: 'margin-bottom:16px' },
+            h.gender ? el('span', { class: 'pill' }, h.gender) : null,
+            h.size ? el('span', { class: 'pill' }, h.size) : null,
+            h.gameplay_entity ? el('span', { class: 'pill mono' }, `entity ${h.gameplay_entity}`) : null,
+            el('span', { class: 'pill orange' }, `${kit.graph_count || 0} graphs`),
+            kit.has_deflect ? el('span', { class: 'pill orange' }, 'deflect') : null,
+            kit.has_projectile_weapon ? el('span', { class: 'pill blue' }, 'projectile') : null,
+            kit.has_beam_weapon ? el('span', { class: 'pill green' }, 'beam') : null,
+          ),
+
+          // Loadouts
+          el('div', { class: 'detail-section' },
+            el('h3', {}, '📜 Loadouts / Abilities'),
+            ...loadouts.map(lo => el('div', { class: 'loadout-row' },
+              el('span', { class: 'lr-slot' }, lo.button || '—'),
+              el('div', {},
+                el('div', { class: 'lr-name' }, lo.name || '?'),
+                lo.desc ? el('div', { style: 'font-size:11px; color:var(--fg-subtle); margin-top:2px' }, lo.desc) : null,
+              ),
+              el('span', { class: 'lr-id mono' }, lo.id),
+              el('span', { class: 'lr-cat' }, lo.category),
+            )),
+          ),
+
+          // Entities
+          ents.length ? el('div', { class: 'detail-section' },
+            el('h3', {}, `🎯 关联 Entities (${ents.length})`),
+            el('table', {},
+              el('thead', {}, el('tr', {},
+                el('th', {}, 'entity_id'),
+                el('th', {}, 'name'),
+                el('th', {}, 'type'),
+                el('th', {}, 'slot'),
+                el('th', {}, 'ability'),
+              )),
+              el('tbody', {}, ...ents.map(e => el('tr', {},
+                el('td', { class: 'mono' }, e.id),
+                el('td', {}, e.name),
+                el('td', {}, el('span', { class: `pill ${e.type === 'Projectile' ? 'orange' : e.type === 'Bot' ? 'blue' : e.type === 'Turret' ? 'yellow' : ''}` }, e.type)),
+                el('td', {}, e.slot !== 'None' ? el('span', { class: 'pill' }, `${slotEmoji(e.slot)} ${e.slot}`) : '—'),
+                el('td', {}, e.loadout_name || '—'),
+              ))),
+            ),
+          ) : null,
+
+          // Weapons
+          wps.length ? el('div', { class: 'detail-section' },
+            el('h3', {}, `🔫 Weapon Volleys (${wps.length})`),
+            el('table', {},
+              el('thead', {}, el('tr', {},
+                el('th', {}, 'graph'),
+                el('th', {}, 'ballistic'),
+                el('th', {}, 'speed'),
+                el('th', {}, 'lifetime'),
+                el('th', {}, 'pellets'),
+                el('th', {}, 'fire_rate'),
+                el('th', {}, 'projectile'),
+              )),
+              el('tbody', {}, ...wps.map(w => el('tr', {},
+                el('td', { class: 'mono' }, w.graph_index),
+                el('td', {}, el('span', { class: `pill ${w.ballistic === 'Projectile' ? 'orange' : w.ballistic === 'HitScan' ? 'blue' : w.ballistic === 'Beam' ? 'green' : ''}` }, w.ballistic)),
+                el('td', { class: 'mono' }, w.speed === -1 ? 'dyn' : w.speed),
+                el('td', { class: 'mono' }, w.lifetime === -1 ? 'dyn' : w.lifetime),
+                el('td', { class: 'mono' }, w.pellets === -1 ? 'dyn' : w.pellets),
+                el('td', { class: 'mono' }, w.fire_rate === -1 ? 'dyn' : w.fire_rate),
+                el('td', {}, w.projectile_entity_name || (w.projectile_entity_id ? w.projectile_entity_id : '—')),
+              ))),
+            ),
+          ) : null,
+        );
+      }
+
+      function openDetail(h) {
+        const d = renderDetail(h);
+        $('#detail').replaceWith(d);
+        d.id = 'detail';
+        d.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+
+      renderAll(heroes);
+    })();
+  </script>
+</body>
+</html>

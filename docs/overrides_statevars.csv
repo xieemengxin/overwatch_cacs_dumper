@@ -1,0 +1,97 @@
+# Manual state-var overrides — applied AFTER auto-dump + usage analysis.
+#
+# Coverage status:
+#   Auto-analyzer found 5594 vars via statescript graph writes/reads.
+#   Community-documented vars:
+#     12/21 auto-matched with good scope/class
+#      9/21 missing from CASC dumps entirely — these are driven by native C++ code
+#           (input/weapon/ability systems) not by Statescript actions. CSV补全是唯一手段.
+#
+# Fields:
+#   var_id  : hex "0x..." (required)
+#   name    : SCREAMING_SNAKE identifier. "*" to keep auto-name.
+#   kind    : Status | Value | Both | Unknown ("*" to keep)
+#   domain  : ABILITY_STATE | ABILITY_COOLDOWN | BUFF_BENEFIT | DEBUFF_HOSTILE |
+#             DAMAGE_MODIFIER | HITBOX_DEFLECT | HEALTH_POOL | SHIELD_BARRIER |
+#             CHASE_VAR | STACK | WEAPON_PARAM | ULT_CHARGE | POSITION | PHYSICS |
+#             EFFECT | UI_UX | TEAM | LIFECYCLE | UNCLASSIFIED ("*" to keep)
+#   notes   : free text
+var_id, name, kind, domain, notes
+# === Community-reversed vars (memory-watched, not in CASC data) ===
+0x48,   LAST_SHOT_TIME,       Value,  WEAPON_PARAM,      社区实证 — 武器系统 timestamp
+0x6D,   AIMING,               Status, ABILITY_STATE,     右键瞄准中 (true=ADS)
+0x7F,   ABILITY_STATE,        Value,  ABILITY_STATE,     ability 状态枚举 (引擎层)
+0xA1,   SNIPER_CHARGE,        Value,  WEAPON_PARAM,      黑百合狙击镜充能进度 [0.0 - 1.0]
+0xC9,   WEAPON_CHARGE,        Value,  WEAPON_PARAM,      武器充能通用值
+0x2E7,  JAVELIN_SPEED,        Value,  WEAPON_PARAM,      奥丽莎标枪速度
+0x375,  RAMATTRA_MODE,        Value,  ABILITY_STATE,     拉玛刹 nemesis form / omnic mode
+0x4A2,  MEI_ICICLE,           Value,  WEAPON_PARAM,      美冰柱充能
+0x5E2,  WEAPON_MODE,          Value,  WEAPON_PARAM,      武器当前模式 (堡垒等 mode-switch hero)
+# === Auto-captured vars whose auto-name wasn't community-descriptive ===
+# (uncomment/edit after confirming community name in game)
+0xD7,   REMAINING_TIME,       Value,  ABILITY_COOLDOWN,  sync_chase — 48 heroes, 社区标记 CD/timer
+0xE8,   WEAPON_CHARGE_ATTACK, Value,  WEAPON_PARAM,      蓄力攻击充能
+0x34A,  ULT_ACTIVE,           Status, LIFECYCLE,         大招激活中 (global, 71 loadouts)
+0x2B2,  RIGHT_CLICK,          Status, ABILITY_STATE,     右键输入状态 (global, 21 loadouts)
+0x4F9,  SOMBRA_INVIS,         Status, BUFF_BENEFIT,      黑影隐身 (global status flag)
+0x189C, SHIFT_COOLDOWN,       Value,  ABILITY_COOLDOWN,  Shift 技能 CD (global)
+0x1F89, E_COOLDOWN,           Value,  ABILITY_COOLDOWN,  E 技能 CD (global)
+0x1E32, ULT_CHARGE,           Value,  ULT_CHARGE,        大招充能进度
+0x28E3, ABILITY_SHIFT,        Status, ABILITY_STATE,     Shift 技能 active handle (Shift=91% writer 分布)
+0x28E9, ABILITY_E,            Status, ABILITY_STATE,     E 技能 active handle (E=76% writer 分布)
+0x83F8, ABILITY_RMB,          Status, ABILITY_STATE,     RMB 技能 active handle (RMB=71% — 社区误称 JAVELIN)
+0x651,  WEAPON_GAUGE,         Value,  WEAPON_PARAM,      武器表盘/充能仪表 (社区实证)
+# === Slot-level ability active / cooldown handles (derived from writer slot分布) ===
+# 每个 slot (LMB/RMB/Shift/E/Ult) 都有多个 handle: primary active + cooldown + secondary frame
+# Verified by writer-loadout button distribution from abilities.json
+#
+# (ABILITY_LMB 不存在: 主攻击无统一 active 状态,每武器自己实现)
+0x18D6, ABILITY_RMB_SECONDARY, Status, ABILITY_STATE,    RMB secondary handle (RMB=90% of 10 loadouts)
+0x152,  ABILITY_ULT_FRAME_ACTIVE, Status, ABILITY_STATE, Ult frame active (Ult=98% / 50 loadouts, 151 setvar)
+0x156,  ABILITY_ULT_CAST_HANDLE,  Status, ABILITY_STATE, Ult cast handle (Ult=98% / 50 loadouts, 77 setvar)
+0xA1FF, ABILITY_ULT_VARIANT_1,    Status, ABILITY_STATE, Ult variant slot 1 (Ult=95% of 22 loadouts)
+0xB560, ABILITY_ULT_VARIANT_2,    Status, ABILITY_STATE, Ult variant slot 2 (Ult=100% of 20 loadouts)
+0x63F4, ABILITY_ULT_VARIANT_3,    Status, ABILITY_STATE, Ult variant slot 3 (Ult=100% of 16 loadouts)
+0x1C94, ABILITY_ULT_VARIANT_4,    Status, ABILITY_STATE, Ult variant slot 4 (Ult=90% of 21 loadouts)
+0x1DB5, ABILITY_ULT_WIDE,         Status, ABILITY_STATE, Ult wide handle (Ult=59% / 81 loadouts)
+0x1077D, ABILITY_E_SECONDARY,     Status, ABILITY_STATE, E secondary handle (E=78% of 9 loadouts)
+0x2541, ABILITY_E_VARIANT_1,      Status, ABILITY_STATE, E variant slot (E=100% of 5 loadouts)
+0x2A9,  ABILITY_SHIFT_SECONDARY, Status, ABILITY_STATE,  Shift secondary handle (Shift=83% of 6 loadouts)
+# === Bonus: ability CD / active / ult-charge candidates discovered from usage analysis ===
+# Coverage check for cheat developers' top priorities:
+#   ✓ SHIFT_COOLDOWN (0x189C), E_COOLDOWN (0x1F89)    — 技能 CD,已命名
+#   ✓ ULT_CHARGE (0x1E32), ULT_ACTIVE (0x34A)         — 大招充能/激活,已命名
+#   ✓ ABILITY_SHIFT/E/JAVELIN (0x28E3/0x28E9/0x83F8)  — 技能 active 状态,已命名
+#   ✓ REMAINING_TIME (0xD7)                           — 通用 timer,已命名
+#   ✓ SNIPER_CHARGE/WEAPON_CHARGE/WEAPON_CHARGE_ATTACK (0xA1/0xC9/0xE8) — 武器充能,已命名
+#   ✓ AIMING (0x6D), RIGHT_CLICK (0x2B2), SOMBRA_INVIS (0x4F9) — 状态 flag,已命名
+#
+# Remaining HIGH-VALUE candidates (fan-out > 7 heroes) — likely ability state / timer.
+# Uncomment after in-game watch confirms semantics:
+#
+# --- 全局 flag 候选 (按 loadout fan-out,示例 ability 给出线索) ---
+# 0x3D,   ABILITY_FRAME_ACTIVE_HANDLE, Status, ABILITY_STATE,  50h/129lo/551setvar — 所有 ability 普遍使用的 active handle
+# 0x2BB,  ABILITY_HANDLE_2BB,          Status, ABILITY_STATE,  49h/121lo — 第二号 ability handle slot
+# 0x1D8,  ABILITY_HANDLE_1D8,          Status, ABILITY_STATE,  49h/110lo — 第三号 ability handle slot
+# 0x177,  ABILITY_INPUT_HELD,          Status, ABILITY_STATE,  50h/70lo,18svo — 只 18 setvar,更像读多写少的 input flag
+# 0x27,   ULT_FRAME_HANDLE_1,          Status, LIFECYCLE,      50h/50lo — 每 hero 正好 1 个 loadout,examples 全是 Ult
+# 0x152,  ULT_CAST_FRAME_1,            Status, LIFECYCLE,      50h/50lo/151setvar — 每 hero 1 个 ult loadout,频繁 setvar
+# 0x156,  ULT_CAST_FRAME_2,            Status, LIFECYCLE,      50h/50lo/77setvar — 类似 0x152
+# 0x1DC,  SUSTAINED_ABILITY_ACTIVE,    Status, ABILITY_STATE,  50h/30lo — examples 全是 sustained (推进背包/切换模式/死亡绽放)
+# 0x18E0, ABILITY_READY_HANDLE,        Status, ABILITY_STATE,  28h/36lo — 可能是 READY 状态(CD 走完可释放)
+#
+# --- 全局 chase 候选 (ChaseVar destination count > 0) ---
+# 0x237,  ABILITY_TIMER_237,           Value,  ABILITY_COOLDOWN, 41h/65lo,20svo — 多 hero 共享 CD/timer slot
+# 0x29E,  ABILITY_TIMER_29E,           Value,  ABILITY_COOLDOWN, 33h/49lo,17svo — 类似
+# 0x3EA,  ABILITY_TIMER_3EA,           Value,  ABILITY_COOLDOWN, 30h/36lo,2cd,3svo — 位移类技能 (暗影步/抓钩/冲锋)
+# 0x1AF,  WEAPON_INPUT_RATE,           Value,  WEAPON_PARAM,   19h/25lo,24svo — 示例含 猎空 闪现/闪回 + 堡垒火炮模式
+# 0x1E63, PASSIVE_PROGRESS,            Value,  CHASE_VAR,      49h/14lo,53svo — 很多 hero 写少数 loadout (passive ability?)
+# 0x24B,  BARRIER_HP_POOL,             Value,  SHIELD_BARRIER, 9 坦克 9 loadout — 已在前面命名 (SHIELD_HP_POOL)
+# 0x3CB,  BARRIER_REGEN_CHASE,         Value,  SHIELD_BARRIER, 9h/9lo,10cd — chase_dest=10 最强 chase 信号,9 barrier tanks
+# 0x49B,  HOOK_POSITION_CHASE,         Value,  POSITION,       7h — 黑百合抓钩/路霸链钩/末日铁拳裂地重拳(钩拉类)
+# 0x32F6, PROJECTILE_CHARGE_HEAVY,     Value,  WEAPON_PARAM,   5h — 渣客女王锯齿/无漾养神/斩仇斩地巨剑(重型武器蓄力)
+# 0x394C, CHARGE_DISTANCE,             Value,  POSITION,       5h — 莱因冲锋/艾什鲍勃/雾子狐(冲刺距离类)
+# 0x4EE,  RAMATTRA_FORM_CD,            Value,  ABILITY_COOLDOWN, 3 heroes — form-switch 类 CD
+# 0x8235, FROZEN_STATE_CHASE,          Value,  DEBUFF_HOSTILE, 3 heroes - freeze-like chase
+#
+# --- Add your overrides below this line ---

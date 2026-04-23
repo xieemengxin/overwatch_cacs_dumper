@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>OW CASC Dumper — State Vars</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="js/app.js" defer></script>
+</head>
+<body>
+  <div class="app">
+    <div id="nav-mount"></div>
+    <main>
+      <h1>State Variables</h1>
+      <p class="subtitle">从 statescript graph 使用模式推导的 var 画像。合并 statevardump.hpp 的 kind/domain + var_usage.json 的 scope/usage_class。</p>
+
+      <div class="filters">
+        <input type="search" id="search" placeholder="🔍 按 var_id / name / 描述…">
+        <label>scope
+          <select id="f-scope">
+            <option value="">全部</option>
+            <option>single_ability</option>
+            <option>single_hero</option>
+            <option>multi_hero</option>
+            <option>global</option>
+            <option>unused</option>
+          </select>
+        </label>
+        <label>class
+          <select id="f-class">
+            <option value="">全部</option>
+            <option>sync_chase</option>
+            <option>sync_flag</option>
+            <option>sync_writable</option>
+            <option>sync</option>
+            <option>cross_graph</option>
+            <option>cross_graph_flag</option>
+            <option>temp</option>
+            <option>unused_flag</option>
+            <option>unused_writable</option>
+          </select>
+        </label>
+        <label>domain
+          <select id="f-domain">
+            <option value="">全部</option>
+          </select>
+        </label>
+        <label>kind
+          <select id="f-kind">
+            <option value="">全部</option>
+            <option>Status</option>
+            <option>Value</option>
+            <option>Both</option>
+            <option>Unknown</option>
+          </select>
+        </label>
+        <span class="count" id="count"></span>
+      </div>
+
+      <div id="tbl-mount"></div>
+    </main>
+    <div id="footer-mount"></div>
+  </div>
+
+  <script>
+    (async () => {
+      const [summary, statevars, usage] = await Promise.all([
+        loadJSON('data/summary.json'),
+        loadJSON('data/statevars.json'),
+        loadJSON('data/var_usage.json'),
+      ]);
+      $('#nav-mount').replaceWith(renderNav('statevars', `Build ${summary.build}`));
+      $('#footer-mount').replaceWith(renderFooter());
+
+      // Merge usage info by var_id
+      const byId = Object.fromEntries(statevars.map(v => [v.var_id.toLowerCase(), v]));
+      usage.forEach(u => {
+        const k = u.var_id.toLowerCase();
+        if (byId[k]) Object.assign(byId[k], {
+          scope: u.scope, usage_class: u.usage_class, binding: u.binding,
+          writer_loadout_count: u.writer_loadout_count, writer_hero_count: u.writer_hero_count,
+          chase_dest: u.chase_dest, setvar_out: u.setvar_out,
+        });
+      });
+      const merged = Object.values(byId);
+
+      // Populate domain filter from data
+      const domains = [...new Set(statevars.map(v => v.domain))].sort();
+      const domSel = $('#f-domain');
+      domains.forEach(d => domSel.append(el('option', { value: d }, d)));
+
+      const kindPill = (k) => el('span', { class: 'pill ' + ({
+        Status: 'blue', Value: 'orange', Both: 'yellow'
+      }[k] || '') }, k);
+
+      const scopePill = (s) => el('span', { class: 'pill ' + ({
+        single_ability: 'orange', single_hero: 'blue', multi_hero: 'green', global: 'yellow'
+      }[s] || '') }, s || '—');
+
+      const classPill = (c) => c ? el('span', { class: 'pill ' + (
+        c.includes('chase') ? 'orange' :
+        c.includes('flag') ? 'blue' :
+        c.startsWith('temp') ? 'red' :
+        c.startsWith('cross_graph') ? 'green' : ''
+      ) }, c) : '—';
+
+      const headers = [
+        { key: 'var_id', label: 'var_id', sortVal: r => hexSort(r.var_id), render: r => el('span', { class: 'mono' }, r.var_id) },
+        { key: 'name', label: 'name' },
+        { key: 'kind', label: 'kind', render: r => kindPill(r.kind) },
+        { key: 'domain', label: 'domain', render: r => el('span', { class: 'pill' }, r.domain) },
+        { key: 'scope', label: 'scope', render: r => scopePill(r.scope) },
+        { key: 'usage_class', label: 'class', render: r => classPill(r.usage_class) },
+        { key: 'binding', label: 'binding',
+          render: r => r.binding ? el('span', { style: 'color:var(--fg-dim); font-size:12px' }, r.binding) : '—' },
+        { key: 'writer_loadout_count', label: 'W(lo)', sortVal: r => r.writer_loadout_count || 0 },
+        { key: 'writer_hero_count', label: 'W(h)', sortVal: r => r.writer_hero_count || 0 },
+        { key: 'chase_dest', label: 'chase', sortVal: r => r.chase_dest || 0 },
+      ];
+      const tbl = makeTable(headers, merged, { initialSort: 0 });
+      $('#tbl-mount').replaceWith(tbl);
+
+      function applyFilters() {
+        const q = $('#search').value;
+        const scope = $('#f-scope').value;
+        const cls = $('#f-class').value;
+        const domain = $('#f-domain').value;
+        const kind = $('#f-kind').value;
+        let r = merged;
+        if (q) r = filterRows(r, q, ['var_id', 'name', 'desc', 'binding']);
+        if (scope) r = r.filter(v => v.scope === scope);
+        if (cls) r = r.filter(v => v.usage_class === cls);
+        if (domain) r = r.filter(v => v.domain === domain);
+        if (kind) r = r.filter(v => v.kind === kind);
+        tbl.setRows(r);
+        $('#count').textContent = `${r.length} / ${merged.length} 条`;
+      }
+      applyFilters();
+      ['#search','#f-scope','#f-class','#f-domain','#f-kind'].forEach(s =>
+        $(s).addEventListener('input', applyFilters));
+    })();
+  </script>
+</body>
+</html>

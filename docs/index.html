@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>OW CASC Dumper — Overview</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="js/app.js" defer></script>
+</head>
+<body>
+  <div class="app">
+    <div id="nav-mount"></div>
+    <main>
+      <h1>Overwatch CASC Dumper</h1>
+      <p class="subtitle">从游戏 CASC 资源里提取英雄 / 技能 / 弹药 / state var,生成版本对应的 C++ SDK 头。零社区硬编码枚举,一切来自数据 + 可审计 CSV。</p>
+
+      <div id="stats-mount"></div>
+
+      <h2>覆盖一览</h2>
+      <div class="grid-2">
+        <div class="card">
+          <h3>核心输出</h3>
+          <ul style="list-style: none; line-height: 2;">
+            <li><span class="pill orange">SDK</span> <a href="sdk.html">6 个 C++ 头文件</a> — namedump / abilitydump / entitydump / statevardump / weapondump / herokitdump</li>
+            <li><span class="pill blue">data</span> <a href="heroes.html">50 playable heroes</a> + <a href="entities.html">1957 entities</a> + <a href="statevars.html">5594 state vars</a></li>
+            <li><span class="pill green">CSV</span> <a href="overrides.html">3 个 overrides 文件</a> 手工补全 / 精修</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>分类维度</h3>
+          <ul style="list-style: none; line-height: 1.8;">
+            <li><b>Scope</b> (var 的作用域): single_ability / single_hero / multi_hero / global</li>
+            <li><b>Usage class</b> (var 的行为模式): sync_flag / sync_chase / sync_writable / cross_graph / temp / unused</li>
+            <li><b>Entity Slot</b>: LMB / RMB / Shift / E / Ult / Passive / None</li>
+            <li><b>Entity Type</b>: Turret / Projectile / Summon / Bot / Decoy / Other</li>
+          </ul>
+        </div>
+      </div>
+
+      <h2>数据管道</h2>
+      <pre class="code">Game Update
+   │
+   ↓ inject keydump.dll
+<span class="s">keydump.json</span> (CMF/TRG 密钥)
+   │
+   ↓ casc_reader (dotnet)
+<span class="s">dump_json/</span> (8 个 raw JSON: heroes, loadouts, abilities, entity_origins, var_usage, ...)
+   │
+   ↓ generate_sdk_v2.py  ←  <span class="k">scripts/overrides/*.csv</span>
+<span class="s">output/*.hpp</span> (6 个 SDK 头) + <span class="s">docs/</span> (这个站点)</pre>
+
+      <h2>Var 分类统计</h2>
+      <div id="var-stats-mount" class="grid-2"></div>
+
+    </main>
+    <div id="footer-mount"></div>
+  </div>
+
+  <script>
+    (async () => {
+      const summary = await loadJSON('data/summary.json');
+      $('#nav-mount').replaceWith(renderNav('home', `Build ${summary.build} · ${summary.version}`));
+      $('#footer-mount').replaceWith(renderFooter());
+
+      // Stats cards
+      const statsGrid = el('div', { class: 'stat-grid' },
+        el('div', { class: 'stat accent' },
+          el('div', { class: 'label' }, 'Playable Heroes'),
+          el('div', { class: 'value' }, summary.heroes_playable),
+          el('div', { class: 'sub' }, `total ${summary.heroes_total} (含 PvE/bot)`)),
+        el('div', { class: 'stat' },
+          el('div', { class: 'label' }, 'Loadouts'),
+          el('div', { class: 'value' }, summary.loadouts),
+          el('div', { class: 'sub' }, 'STULoadout 定义')),
+        el('div', { class: 'stat' },
+          el('div', { class: 'label' }, 'Entities'),
+          el('div', { class: 'value' }, summary.entities_total),
+          el('div', { class: 'sub' }, `${summary.entities_hero_bound} 绑定英雄 · ${summary.entities_with_slot} 带 slot`)),
+        el('div', { class: 'stat' },
+          el('div', { class: 'label' }, 'State Vars'),
+          el('div', { class: 'value' }, summary.statevars),
+          el('div', { class: 'sub' }, `${summary.var_usage_total} 个带 usage profile`)),
+        el('div', { class: 'stat' },
+          el('div', { class: 'label' }, 'Weapon Volleys'),
+          el('div', { class: 'value' }, summary.weapons),
+          el('div', { class: 'sub' }, '含弹道参数 + projectile ref')),
+      );
+      $('#stats-mount').replaceWith(statsGrid);
+
+      // Var scope + class breakdown
+      const scopeTbl = el('div', { class: 'card' },
+        el('h3', {}, 'Scope 分布 (5594 个 var)'),
+        el('table', {},
+          el('thead', {}, el('tr', {}, el('th', {}, 'scope'), el('th', {}, 'count'), el('th', {}, '占比'))),
+          el('tbody', {}, ...Object.entries(summary.var_scope_counts).map(([k, v]) =>
+            el('tr', {},
+              el('td', {}, el('span', { class: 'pill ' + ({
+                single_ability: 'orange', single_hero: 'blue', multi_hero: 'green', global: 'yellow', unused: ''
+              }[k] || '') }, k)),
+              el('td', { class: 'mono' }, v),
+              el('td', { class: 'mono' }, `${(100 * v / summary.var_usage_total).toFixed(1)}%`))
+          )))
+      );
+      const classTbl = el('div', { class: 'card' },
+        el('h3', {}, 'Usage class 分布'),
+        el('table', {},
+          el('thead', {}, el('tr', {}, el('th', {}, 'class'), el('th', {}, 'count'), el('th', {}, '占比'))),
+          el('tbody', {}, ...Object.entries(summary.var_class_counts).map(([k, v]) =>
+            el('tr', {},
+              el('td', {}, el('span', { class: 'pill ' + (
+                k.includes('chase') ? 'orange' :
+                k.includes('flag') ? 'blue' :
+                k.startsWith('temp') ? 'red' :
+                k.startsWith('unused') ? '' :
+                k.startsWith('cross_graph') ? 'green' : 'yellow'
+              ) }, k)),
+              el('td', { class: 'mono' }, v),
+              el('td', { class: 'mono' }, `${(100 * v / summary.var_usage_total).toFixed(1)}%`))
+          )))
+      );
+      $('#var-stats-mount').replaceWith(el('div', { class: 'grid-2' }, scopeTbl, classTbl));
+    })();
+  </script>
+</body>
+</html>

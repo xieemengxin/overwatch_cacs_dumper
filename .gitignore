@@ -5,4 +5,11 @@ obj/
 *.pdb
 .vs/
 *.user
-output/
+
+# Raw JSON dumps from casc_reader — too big for git.
+# graph_nodes.json is 80MB alone; graph_topology/ totals ~300MB.
+# SDK headers (.hpp / .csv / var_usage.json) stay tracked so Pages can rebuild.
+output/dump_json/
+output/graph_topology/
+dump_output/
+scripts/__pycache__/

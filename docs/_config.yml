@@ -1,0 +1,4 @@
+# GitHub Pages — disable Jekyll. We're a static site, no markdown processing needed.
+# This tells Pages to serve files as-is and skip Jekyll rendering.
+include: ["*"]
+exclude: []

@@ -1,0 +1,71 @@
+name: Publish GitHub Pages
+
+# Rebuild docs/ and deploy to Pages whenever:
+#   - push to main touches the generator, SDK output, or overrides
+#   - someone runs the workflow manually
+#
+# The generator itself needs a fresh CASC dump (run locally on a machine that has Overwatch).
+# This workflow only refreshes docs/ from whatever is committed under output/ + scripts/overrides/,
+# so you can iterate on the CSV overrides or site layout without re-running casc_reader.
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'output/**'
+      - 'scripts/overrides/**'
+      - 'scripts/build_pages.py'
+      - 'scripts/generate_sdk_v2.py'
+      - 'docs/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Regenerate SDK from dump_json/ + overrides/
+        # Skip if there's no dump_json (then we just re-use whatever's in output/ + rebuild docs)
+        run: |
+          if [ -d output/dump_json ] && [ -f output/dump_json/heroes.json ]; then
+            echo "dump_json present — running generate_sdk_v2.py"
+            python3 scripts/generate_sdk_v2.py
+          else
+            echo "dump_json missing — skipping regenerate, using committed output/ as-is"
+          fi
+
+      - name: Rebuild docs/ from output/ + overrides/
+        run: python3 scripts/build_pages.py
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

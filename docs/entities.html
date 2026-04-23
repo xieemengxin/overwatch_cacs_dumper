@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>OW CASC Dumper — Entities</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="js/app.js" defer></script>
+</head>
+<body>
+  <div class="app">
+    <div id="nav-mount"></div>
+    <main>
+      <h1>Entities</h1>
+      <p class="subtitle">游戏里所有 entity 定义,含 owner hero / ability / slot 关联。支持按 type / slot / hero 筛选。</p>
+
+      <div class="filters">
+        <input type="search" id="search" placeholder="🔍 按 ID / 名字 / hero / ability…">
+        <label>type
+          <select id="f-type">
+            <option value="">全部</option>
+            <option>Projectile</option>
+            <option>Turret</option>
+            <option>Summon</option>
+            <option>Bot</option>
+            <option>Decoy</option>
+            <option>Other</option>
+          </select>
+        </label>
+        <label>slot
+          <select id="f-slot">
+            <option value="">全部</option>
+            <option>LMB</option>
+            <option>RMB</option>
+            <option>Shift</option>
+            <option>E</option>
+            <option>Ult</option>
+            <option>Passive</option>
+            <option>None</option>
+          </select>
+        </label>
+        <label>
+          <input type="checkbox" id="f-hero-bound">
+          只看绑定 hero 的
+        </label>
+        <span class="count" id="count"></span>
+      </div>
+
+      <div id="tbl-mount"></div>
+    </main>
+    <div id="footer-mount"></div>
+  </div>
+
+  <script>
+    (async () => {
+      const [summary, entities] = await Promise.all([
+        loadJSON('data/summary.json'),
+        loadJSON('data/entities.json'),
+      ]);
+      $('#nav-mount').replaceWith(renderNav('entities', `Build ${summary.build}`));
+      $('#footer-mount').replaceWith(renderFooter());
+
+      const typePill = (t) => el('span', { class: 'pill ' + ({
+        Projectile: 'orange', Turret: 'yellow', Summon: 'blue', Bot: 'green', Decoy: 'red'
+      }[t] || '') }, t);
+
+      const slotPill = (s) => s && s !== 'None'
+        ? el('span', { class: 'pill orange mono' }, s)
+        : el('span', { class: 'pill' }, '—');
+
+      const headers = [
+        { key: 'id', label: 'entity_id', sortVal: r => hexSort(r.id), render: r => el('span', { class: 'mono' }, r.id) },
+        { key: 'name', label: 'name' },
+        { key: 'type', label: 'type', render: r => typePill(r.type) },
+        { key: 'slot', label: 'slot', render: r => slotPill(r.slot) },
+        { key: 'hero_name', label: 'hero', render: r => r.hero_name || '—' },
+        { key: 'loadout_name', label: 'ability', render: r => r.loadout_name || '—' },
+        { key: 'button', label: 'button', render: r => r.button || '—' },
+        { key: 'loadout_id', label: 'loadout', sortVal: r => hexSort(r.loadout_id), render: r => r.loadout_id ? el('span', { class: 'mono' }, r.loadout_id) : '—' },
+      ];
+      const tbl = makeTable(headers, entities, { initialSort: 0 });
+      $('#tbl-mount').replaceWith(tbl);
+
+      function applyFilters() {
+        const q = $('#search').value;
+        const type = $('#f-type').value;
+        const slot = $('#f-slot').value;
+        const heroBound = $('#f-hero-bound').checked;
+        let r = entities;
+        if (q) r = filterRows(r, q, ['id', 'name', 'hero_name', 'loadout_name']);
+        if (type) r = r.filter(e => e.type === type);
+        if (slot) r = r.filter(e => e.slot === slot);
+        if (heroBound) r = r.filter(e => e.hero_id);
+        tbl.setRows(r);
+        $('#count').textContent = `${r.length} / ${entities.length} 条`;
+      }
+      applyFilters();
+      ['#search','#f-type','#f-slot','#f-hero-bound'].forEach(s =>
+        $(s).addEventListener('input', applyFilters));
+    })();
+  </script>
+</body>
+</html>
